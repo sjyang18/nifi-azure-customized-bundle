@@ -167,26 +167,26 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
 
     @Override
     public UserGroupProvider getUserGroupProvider() {
-        logger.info("getUserGroupProvider called.");
+        logger.info("getUserGroupProvider() called.");
         return userGroupProvider;
     }
 
     @Override
     public Set<AccessPolicy> getAccessPolicies() throws AuthorizationAccessException {
-        logger.info("getUserGroupProvider called.");
+        logger.debug("getAccessPolicies() called.");
         return policyDataStore.getAccessPolicies();
     }
 
     @Override
     public synchronized AccessPolicy addAccessPolicy(AccessPolicy accessPolicy) throws AuthorizationAccessException {
-        logger.info("getUserGroupProvider called.");
+        logger.info("addAccessPolicy(AccessPolicy) called.");
         return policyDataStore.addAccessPolicy(accessPolicy);
     }
 
 
     @Override
     public AccessPolicy getAccessPolicy(String identifier) throws AuthorizationAccessException {
-        logger.info("getAccessPolicy called.");
+        logger.debug(String.format("getAccessPolicy called with identifier(%s)", identifier));
         if (identifier == null) {
             return null;
         }
@@ -195,13 +195,13 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
 
     @Override
     public AccessPolicy getAccessPolicy(String resourceIdentifier, RequestAction action) throws AuthorizationAccessException {
-        logger.info("getAccessPolicy called.");
+        logger.debug(String.format("getAccessPolicy called with resourceIdentifier(%s) and action(%s)",resourceIdentifier,action.toString()) );
         return policyDataStore.getAccessPolicy(resourceIdentifier, action.toString());
     }
 
     @Override
     public synchronized AccessPolicy updateAccessPolicy(AccessPolicy accessPolicy) throws AuthorizationAccessException {
-        logger.info("updateAccessPolicy called.");
+        logger.debug("updateAccessPolicy(accessPolicy) called.");
         if (accessPolicy == null) {
             throw new IllegalArgumentException("AccessPolicy cannot be null");
         }
@@ -224,22 +224,22 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
 
     @Override
     public synchronized void inheritFingerprint(String fingerprint) throws AuthorizationAccessException {
-        logger.info("inheritFingerprint called. MongoDBAccessPolicyProvider ignores");
+        logger.debug("inheritFingerprint called. MongoDBAccessPolicyProvider ignores");
     }
 
     @Override
     public synchronized void forciblyInheritFingerprint(final String fingerprint) throws AuthorizationAccessException {
-        logger.info("forciblyInheritFingerprint called. MongoDBAccessPolicyProvider ignores");
+        logger.debug("forciblyInheritFingerprint called. MongoDBAccessPolicyProvider ignores");
     }
 
     @Override
     public void checkInheritability(String proposedFingerprint) throws AuthorizationAccessException, UninheritableAuthorizationsException {
-        logger.info("checkInheritability called. MongoDBAccessPolicyProvider ignores");
+        logger.debug("checkInheritability called. MongoDBAccessPolicyProvider ignores");
     }
 
     @Override
     public String getFingerprint() throws AuthorizationAccessException {
-        logger.info("getFingerprint called. MongoDBAccessPolicyProvider returns null");
+        logger.debug("getFingerprint called. MongoDBAccessPolicyProvider returns null");
         return null;
     }
 
@@ -254,7 +254,7 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
 
         parseFlow();
         if (hasInitialAdminIdentity) {
-            logger.info("Populating authorizations for Initial Admin: " + initialAdminIdentity);
+            logger.debug("Populating authorizations for Initial Admin: " + initialAdminIdentity);
             populateInitialAdmin(policiesInMemory);
         }
         populateNodes(policiesInMemory);
@@ -272,7 +272,7 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
      * @throws SAXException if an error occurs creating the schema
      */
     private void parseFlow() throws SAXException {
-        logger.info("parseFlow called.");
+        logger.debug("parseFlow called.");
 
         final FlowParser flowParser = new FlowParser();
         final FlowInfo flowInfo = flowParser.parse(properties.getFlowConfigurationFile());
@@ -281,7 +281,7 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
             rootGroupId = flowInfo.getRootGroupId();
             ports = flowInfo.getPorts() == null ? new ArrayList<>() : flowInfo.getPorts();
         }
-        logger.info("parseFlow ended.");
+        logger.debug("parseFlow ended.");
     }
 
     /**
