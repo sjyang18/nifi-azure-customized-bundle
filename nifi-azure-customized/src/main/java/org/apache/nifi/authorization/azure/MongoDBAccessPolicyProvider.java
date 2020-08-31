@@ -224,17 +224,17 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
 
     @Override
     public synchronized void inheritFingerprint(String fingerprint) throws AuthorizationAccessException {
-        logger.debug("inheritFingerprint called. MongoDBAccessPolicyProvider ignores");
+        logger.debug("inheritFingerprint called. MongoDBAccessPolicyProvider ignores inheritFingerprint.");
     }
 
     @Override
     public synchronized void forciblyInheritFingerprint(final String fingerprint) throws AuthorizationAccessException {
-        logger.debug("forciblyInheritFingerprint called. MongoDBAccessPolicyProvider ignores");
+        logger.debug("forciblyInheritFingerprint called. MongoDBAccessPolicyProvider ignores forciblyInheritFingerprint.");
     }
 
     @Override
     public void checkInheritability(String proposedFingerprint) throws AuthorizationAccessException, UninheritableAuthorizationsException {
-        logger.debug("checkInheritability called. MongoDBAccessPolicyProvider ignores");
+        logger.debug("checkInheritability called. MongoDBAccessPolicyProvider ignores checkInheritability.");
     }
 
     @Override
