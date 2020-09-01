@@ -16,7 +16,13 @@
  */
 package org.apache.nifi.authorization.azure;
 
-import java.util.ArrayList;
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -26,6 +32,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.GZIPInputStream;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
 
 import com.mongodb.MongoClientURI;
 
@@ -34,8 +45,6 @@ import org.apache.nifi.authorization.AccessPolicy;
 import org.apache.nifi.authorization.AccessPolicyProviderInitializationContext;
 import org.apache.nifi.authorization.AuthorizerConfigurationContext;
 import org.apache.nifi.authorization.ConfigurableAccessPolicyProvider;
-import org.apache.nifi.authorization.FlowInfo;
-import org.apache.nifi.authorization.FlowParser;
 import org.apache.nifi.authorization.Group;
 import org.apache.nifi.authorization.RequestAction;
 import org.apache.nifi.authorization.User;
@@ -51,9 +60,10 @@ import org.apache.nifi.authorization.util.IdentityMappingUtil;
 import org.apache.nifi.components.PropertyValue;
 import org.apache.nifi.util.FormatUtils;
 import org.apache.nifi.util.NiFiProperties;
-import org.apache.nifi.web.api.dto.PortDTO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 import org.xml.sax.SAXException;
 
 public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProvider {
@@ -77,7 +87,6 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
     private String initialAdminIdentity;
     private Set<String> nodeIdentities;
     private String nodeGroupIdentifier;
-    private List<PortDTO> ports = new ArrayList<>();
     private List<IdentityMapping> identityMappings;
     private List<IdentityMapping> groupMappings;
 
@@ -332,22 +341,77 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
     }
 
     /**
-     * Try to parse the flow configuration file to extract the root group id and port information.
+     * Try to parse the flow configuration file to extract the root group id for initail policy generation.
      *
      * @throws SAXException if an error occurs creating the schema
      */
     private void parseFlow() throws SAXException {
         logger.debug("parseFlow called.");
-
-        final FlowParser flowParser = new FlowParser();
-        final FlowInfo flowInfo = flowParser.parse(properties.getFlowConfigurationFile());
-
-        if (flowInfo != null) {
-            rootGroupId = flowInfo.getRootGroupId();
-            ports = flowInfo.getPorts() == null ? new ArrayList<>() : flowInfo.getPorts();
-        }
+        rootGroupId = parseFlowRootId(properties.getFlowConfigurationFile());
         logger.debug("parseFlow ended.");
     }
+
+    /**
+     * Extracts the root group id from the flow configuration file provided in nifi.properties
+     *
+     */
+    public String parseFlowRootId(final File flowConfigurationFile) {
+        if (flowConfigurationFile == null) {
+            logger.debug("Flow Configuration file was null");
+            return null;
+        }
+
+        // if the flow doesn't exist or is 0 bytes, then return null
+        final Path flowPath = flowConfigurationFile.toPath();
+        try {
+            if (!Files.exists(flowPath) || Files.size(flowPath) == 0) {
+                logger.warn("Flow Configuration does not exist or was empty");
+                return null;
+            }
+        } catch (IOException e) {
+            logger.error("An error occurred determining the size of the Flow Configuration file");
+            return null;
+        }
+
+        // otherwise create the appropriate input streams to read the file
+        try (final InputStream in = Files.newInputStream(flowPath, StandardOpenOption.READ);
+             final InputStream gzipIn = new GZIPInputStream(in)) {
+
+            byte[] flowBytes = gzipIn.readAllBytes();
+            if (flowBytes == null || flowBytes.length == 0) {
+                logger.warn("Could not extract root group id because Flow Configuration File was empty");
+                return null;
+            }
+
+            // create document builder
+            final DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
+            // parse the flow
+            final DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
+            final Document document = docBuilder.parse(new ByteArrayInputStream(flowBytes));
+
+            // extract the root group id
+            final Element rootElement = document.getDocumentElement();
+            final Element rootGroupElement = (Element) rootElement.getElementsByTagName("rootGroup").item(0);
+            if (rootGroupElement == null) {
+                logger.warn("rootGroup element not found in Flow Configuration file");
+                return null;
+            }
+
+            final Element rootGroupIdElement = (Element) rootGroupElement.getElementsByTagName("id").item(0);
+            if (rootGroupIdElement == null) {
+                logger.warn("id element not found under rootGroup in Flow Configuration file");
+                return null;
+            }
+
+            final String rootGroupId = rootGroupIdElement.getTextContent();
+            return rootGroupId;
+
+        } catch (final SAXException | ParserConfigurationException | IOException ex) {
+            logger.error("Unable to parse flow {} due to {}", new Object[] { flowPath.toAbsolutePath(), ex });
+            return null;
+        }
+    }
+
 
     /**
      *  Creates the initial admin user and policies for access the flow and managing users and policies.
