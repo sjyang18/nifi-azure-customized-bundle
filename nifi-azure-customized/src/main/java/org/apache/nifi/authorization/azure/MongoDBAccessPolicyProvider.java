@@ -16,7 +16,6 @@
  */
 package org.apache.nifi.authorization.azure;
 
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -24,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -83,8 +83,8 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
 
     private UserGroupProvider userGroupProvider;
     private UserGroupProviderLookup userGroupProviderLookup;
-    private AccessPolicyDataStore  policyDataStore;
-    private AccessPolicyCache policyCache;
+    private final AtomicReference<AccessPolicyDataStore> policyDataStoreRef = new AtomicReference<>();
+    private final AtomicReference<AccessPolicyCache> policyCacheRef = new AtomicReference<>();
 
     @Override
     public void initialize(AccessPolicyProviderInitializationContext initializationContext) throws AuthorizerCreationException {
@@ -100,8 +100,8 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
                 throw new AuthorizerCreationException("MongoDB connection string and dbname for Authorizations must be specified");
             }
             final MongoClientURI mongoClientURI = new MongoClientURI(connectionString.getValue());
-            policyDataStore = new AccessPolicyDataStore(mongoClientURI, dbName.getValue());
-            policyCache = new AccessPolicyCache(getCacheTimeoutProperty(configurationContext));
+            policyDataStoreRef.set(new AccessPolicyDataStore(mongoClientURI, dbName.getValue()));
+            policyCacheRef.set(new AccessPolicyCache(getCacheTimeoutProperty(configurationContext)));
 
             final PropertyValue userGroupProviderIdentifier = configurationContext.getProperty(PROP_USER_GROUP_PROVIDER);
             if (!userGroupProviderIdentifier.isSet()) {
@@ -160,7 +160,7 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
             }
             // see if you have initial access policies
             // if not, generate
-            final Set<AccessPolicy> policies = policyDataStore.getAccessPolicies();
+            final Set<AccessPolicy> policies = getAccessPolicyDataStore().getAccessPolicies();
             if(policies.size() == 0) {
                 // load the initail access policies
                 populateInitialAccessPolicies();
@@ -168,6 +168,13 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
         } catch (SAXException | AuthorizerCreationException | IllegalStateException e) {
             throw new AuthorizerCreationException(e);
         }
+    }
+
+    private AccessPolicyDataStore getAccessPolicyDataStore(){
+        return policyDataStoreRef.get();
+    }
+    private AccessPolicyCache getAccessPolicyCache(){
+        return policyCacheRef.get();
     }
 
     private long getCacheTimeoutProperty(AuthorizerConfigurationContext configurationContext) {
@@ -199,12 +206,13 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
     @Override
     public Set<AccessPolicy> getAccessPolicies() throws AuthorizationAccessException {
         logger.debug("getAccessPolicies() called.");
-        final Set<AccessPolicy> cached = policyCache.getAccessPoliciesFromCache();
-        if(cached != null) {
-            return cached;
+        final AccessPolicyCache cache = getAccessPolicyCache();
+        final Set<AccessPolicy> cachedPolicy = cache.getAccessPoliciesFromCache();
+        if(cachedPolicy != null) {
+            return cachedPolicy;
         } else {
-            final Set<AccessPolicy> retreived = policyDataStore.getAccessPolicies();
-            policyCache.resetCache(retreived);
+            final Set<AccessPolicy> retreived = getAccessPolicyDataStore().getAccessPolicies();
+            cache.resetCache(retreived);
             return retreived;
         }
     }
@@ -212,8 +220,8 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
     @Override
     public synchronized AccessPolicy addAccessPolicy(AccessPolicy accessPolicy) throws AuthorizationAccessException {
         logger.info("addAccessPolicy(AccessPolicy) called.");
-        final AccessPolicy policy = policyDataStore.addAccessPolicy(accessPolicy);
-        policyCache.cachePolicy(accessPolicy);
+        final AccessPolicy policy = getAccessPolicyDataStore().addAccessPolicy(accessPolicy);
+        getAccessPolicyCache().cachePolicy(accessPolicy);
         return policy;
     }
 
@@ -221,16 +229,17 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
     @Override
     public AccessPolicy getAccessPolicy(String identifier) throws AuthorizationAccessException {
         logger.debug(String.format("getAccessPolicy called with identifier(%s)", identifier));
+        final AccessPolicyCache cache = getAccessPolicyCache();
         if (identifier == null) {
             return null;
         }
-        final AccessPolicy policyFromCache = policyCache.getAccessPolicyFromCache(identifier);
+        final AccessPolicy policyFromCache = cache.getAccessPolicyFromCache(identifier);
         if(policyFromCache !=null) {
             return policyFromCache;
         }
-        final AccessPolicy retrieved = policyDataStore.getAccessPolicy(identifier);
+        final AccessPolicy retrieved = getAccessPolicyDataStore().getAccessPolicy(identifier);
         if(retrieved !=null) {
-            policyCache.cachePolicy(retrieved);
+            cache.cachePolicy(retrieved);
         }
 
         return retrieved;
@@ -239,13 +248,14 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
     @Override
     public AccessPolicy getAccessPolicy(String resourceIdentifier, RequestAction action) throws AuthorizationAccessException {
         logger.debug(String.format("getAccessPolicy called with resourceIdentifier(%s) and action(%s)",resourceIdentifier,action.toString()) );
-        final AccessPolicy policyFromCache = policyCache.getAccessPolicyFromCache(resourceIdentifier, action);
+        final AccessPolicyCache cache = getAccessPolicyCache();
+        final AccessPolicy policyFromCache = cache.getAccessPolicyFromCache(resourceIdentifier, action);
         if(policyFromCache !=null) {
             return policyFromCache;
         }
-        final AccessPolicy retrieved = policyDataStore.getAccessPolicy(resourceIdentifier, action.toString());
+        final AccessPolicy retrieved = getAccessPolicyDataStore().getAccessPolicy(resourceIdentifier, action.toString());
         if(retrieved !=null) {
-            policyCache.cachePolicy(retrieved);
+            cache.cachePolicy(retrieved);
         }
         return retrieved;
     }
@@ -256,19 +266,19 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
         if (accessPolicy == null) {
             throw new IllegalArgumentException("AccessPolicy cannot be null");
         }
-        final AccessPolicy updated = policyDataStore.updateAccessPolicy(accessPolicy);
-        policyCache.cachePolicy(updated);
+        final AccessPolicy updated = getAccessPolicyDataStore().updateAccessPolicy(accessPolicy);
+        getAccessPolicyCache().cachePolicy(updated);
         return updated;
     }
 
     @Override
     public synchronized AccessPolicy deleteAccessPolicy(AccessPolicy accessPolicy) throws AuthorizationAccessException {
-        logger.info("deleteAccessPolicy called.");
+        logger.debug("deleteAccessPolicy called.");
         if (accessPolicy == null) {
             throw new IllegalArgumentException("AccessPolicy cannot be null");
         }
-        policyCache.remove(accessPolicy);
-        return policyDataStore.deleteAccessPolicy(accessPolicy);
+        getAccessPolicyCache().remove(accessPolicy);
+        return getAccessPolicyDataStore().deleteAccessPolicy(accessPolicy);
     }
 
     @AuthorizerContext
@@ -314,8 +324,9 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
         populateNodes(policiesInMemory);
 
         // save the initial access policies to db
+        final AccessPolicyDataStore datastore = getAccessPolicyDataStore();
         for(AccessPolicy apolicy: policiesInMemory){
-            policyDataStore.addInitialAccessPolicyConfig(apolicy);
+            datastore.addInitialAccessPolicyConfig(apolicy);
         }
 
     }
