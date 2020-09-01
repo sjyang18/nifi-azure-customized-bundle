@@ -23,6 +23,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -48,6 +49,7 @@ import org.apache.nifi.authorization.exception.UninheritableAuthorizationsExcept
 import org.apache.nifi.authorization.util.IdentityMapping;
 import org.apache.nifi.authorization.util.IdentityMappingUtil;
 import org.apache.nifi.components.PropertyValue;
+import org.apache.nifi.util.FormatUtils;
 import org.apache.nifi.util.NiFiProperties;
 import org.apache.nifi.web.api.dto.PortDTO;
 import org.slf4j.Logger;
@@ -68,6 +70,7 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
     static final String PROP_MONGODB_DB_NAME = "MongoDB DB Name for Authorizations";
     static final String PROP_INITIAL_ADMIN_IDENTITY = "Initial Admin Identity";
     static final Pattern NODE_IDENTITY_PATTERN = Pattern.compile(PROP_NODE_IDENTITY_PREFIX + "\\S+");
+    static final String PROP_CACHE_EXPIRATION_TIMEOUT = "Cache Expiration Timeout";
 
     private NiFiProperties properties;
     private String rootGroupId;
@@ -81,6 +84,7 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
     private UserGroupProvider userGroupProvider;
     private UserGroupProviderLookup userGroupProviderLookup;
     private AccessPolicyDataStore  policyDataStore;
+    private AccessPolicyCache policyCache;
 
     @Override
     public void initialize(AccessPolicyProviderInitializationContext initializationContext) throws AuthorizerCreationException {
@@ -97,6 +101,7 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
             }
             final MongoClientURI mongoClientURI = new MongoClientURI(connectionString.getValue());
             policyDataStore = new AccessPolicyDataStore(mongoClientURI, dbName.getValue());
+            policyCache = new AccessPolicyCache(getCacheTimeoutProperty(configurationContext));
 
             final PropertyValue userGroupProviderIdentifier = configurationContext.getProperty(PROP_USER_GROUP_PROVIDER);
             if (!userGroupProviderIdentifier.isSet()) {
@@ -165,6 +170,26 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
         }
     }
 
+    private long getCacheTimeoutProperty(AuthorizerConfigurationContext configurationContext) {
+        final PropertyValue propertyValue = configurationContext.getProperty(PROP_CACHE_EXPIRATION_TIMEOUT);
+        final String strPropertyValue;
+        if(propertyValue !=null && propertyValue.isSet()){
+            strPropertyValue = propertyValue.getValue();
+        } else{
+            strPropertyValue = "2 mins";
+        }
+
+        final long timeOutInSeconds;
+        try {
+            timeOutInSeconds = Math.round(FormatUtils.getPreciseTimeDuration(strPropertyValue, TimeUnit.SECONDS));
+        } catch (final IllegalArgumentException ignored) {
+            throw new AuthorizerCreationException(
+                    String.format("The %s : '%s' is not a valid timeout configuration.", PROP_CACHE_EXPIRATION_TIMEOUT, strPropertyValue));
+        }
+        logger.debug(String.format("%s : '%s' ", PROP_CACHE_EXPIRATION_TIMEOUT, timeOutInSeconds));
+        return timeOutInSeconds;
+    }
+
     @Override
     public UserGroupProvider getUserGroupProvider() {
         logger.info("getUserGroupProvider() called.");
@@ -174,13 +199,22 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
     @Override
     public Set<AccessPolicy> getAccessPolicies() throws AuthorizationAccessException {
         logger.debug("getAccessPolicies() called.");
-        return policyDataStore.getAccessPolicies();
+        final Set<AccessPolicy> cached = policyCache.getAccessPoliciesFromCache();
+        if(cached != null) {
+            return cached;
+        } else {
+            final Set<AccessPolicy> retreived = policyDataStore.getAccessPolicies();
+            policyCache.resetCache(retreived);
+            return retreived;
+        }
     }
 
     @Override
     public synchronized AccessPolicy addAccessPolicy(AccessPolicy accessPolicy) throws AuthorizationAccessException {
         logger.info("addAccessPolicy(AccessPolicy) called.");
-        return policyDataStore.addAccessPolicy(accessPolicy);
+        final AccessPolicy policy = policyDataStore.addAccessPolicy(accessPolicy);
+        policyCache.cachePolicy(accessPolicy);
+        return policy;
     }
 
 
@@ -190,13 +224,30 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
         if (identifier == null) {
             return null;
         }
-        return policyDataStore.getAccessPolicy(identifier);
+        final AccessPolicy policyFromCache = policyCache.getAccessPolicyFromCache(identifier);
+        if(policyFromCache !=null) {
+            return policyFromCache;
+        }
+        final AccessPolicy retrieved = policyDataStore.getAccessPolicy(identifier);
+        if(retrieved !=null) {
+            policyCache.cachePolicy(retrieved);
+        }
+
+        return retrieved;
     }
 
     @Override
     public AccessPolicy getAccessPolicy(String resourceIdentifier, RequestAction action) throws AuthorizationAccessException {
         logger.debug(String.format("getAccessPolicy called with resourceIdentifier(%s) and action(%s)",resourceIdentifier,action.toString()) );
-        return policyDataStore.getAccessPolicy(resourceIdentifier, action.toString());
+        final AccessPolicy policyFromCache = policyCache.getAccessPolicyFromCache(resourceIdentifier, action);
+        if(policyFromCache !=null) {
+            return policyFromCache;
+        }
+        final AccessPolicy retrieved = policyDataStore.getAccessPolicy(resourceIdentifier, action.toString());
+        if(retrieved !=null) {
+            policyCache.cachePolicy(retrieved);
+        }
+        return retrieved;
     }
 
     @Override
@@ -205,7 +256,9 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
         if (accessPolicy == null) {
             throw new IllegalArgumentException("AccessPolicy cannot be null");
         }
-        return policyDataStore.updateAccessPolicy(accessPolicy);
+        final AccessPolicy updated = policyDataStore.updateAccessPolicy(accessPolicy);
+        policyCache.cachePolicy(updated);
+        return updated;
     }
 
     @Override
@@ -214,6 +267,7 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
         if (accessPolicy == null) {
             throw new IllegalArgumentException("AccessPolicy cannot be null");
         }
+        policyCache.remove(accessPolicy);
         return policyDataStore.deleteAccessPolicy(accessPolicy);
     }
 
