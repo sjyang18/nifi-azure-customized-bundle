@@ -24,10 +24,20 @@ import org.apache.nifi.authorization.RequestAction;
  */
 
 import dev.morphia.annotations.Entity;
+import dev.morphia.annotations.Field;
 import dev.morphia.annotations.Id;
+import dev.morphia.annotations.Index;
+import dev.morphia.annotations.IndexOptions;
+import dev.morphia.annotations.Indexes;
 import dev.morphia.annotations.Property;
 
 @Entity(Policy.ENTITY_COLLECTION_NAME)
+@Indexes({
+    @Index(
+      fields = @Field("resource"),
+      options = @IndexOptions(name = "policy_resource")
+    )
+  })
 public class Policy {
     @Id
     private String identifier;
