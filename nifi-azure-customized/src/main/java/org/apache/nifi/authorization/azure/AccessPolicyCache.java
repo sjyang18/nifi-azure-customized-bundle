@@ -30,16 +30,29 @@ import org.apache.nifi.authorization.RequestAction;
 public class AccessPolicyCache {
     private Map<String, Instant> policyIdToTimestamp;
     private Map<String, AccessPolicy> policiesById;
-    private Map<String, String> resourceIdAndActionToPolicyId; // map (resource_id + action) => policyId
+    private Map<String, String> resourceNameAndActionToPolicyId; // map (resourceName + action) => policyId
     private long cacheDurationBySeconds;
-    private Instant lastResetTimeStamp;
+    private Instant lastTimeStamp;
 
     public AccessPolicyCache(long cacheDurationBySeconds) {
         this.cacheDurationBySeconds = cacheDurationBySeconds;
         policyIdToTimestamp = new HashMap<>();
         policiesById = new HashMap<>();
-        resourceIdAndActionToPolicyId = new HashMap<>();
-        lastResetTimeStamp = null;
+        resourceNameAndActionToPolicyId = new HashMap<>();
+        lastTimeStamp = null;
+    }
+
+    static String getResourceActionKey(String resourceName, RequestAction action){
+        return String.format("%s_%s", resourceName, action.toString());
+    }
+
+    public boolean existDefinedPolicyFor(String policyId) {
+        return policiesById.keySet().contains(policyId);
+    }
+
+    public boolean existDefinedPolicyFor(String resourceName, RequestAction action) {
+        final String key = getResourceActionKey(resourceName, action);
+        return resourceNameAndActionToPolicyId.keySet().contains(key);
     }
 
     public void resetCache(Set<AccessPolicy> policies) {
@@ -55,17 +68,18 @@ public class AccessPolicyCache {
             newPolicyIdToTimestamp.put(policy.getIdentifier(), timestamp);
             newPoliciesById.put(policy.getIdentifier(), policy);
             newResourceIdAndActionToPolicyId.put(
-                String.format("%s_%s", policy.getResource(), policy.getAction().toString()), policy.getIdentifier());
+                getResourceActionKey(policy.getResource(), policy.getAction()),
+                policy.getIdentifier());
         }
 
 
         this.policiesById.clear();
-        this.resourceIdAndActionToPolicyId.clear();
+        this.resourceNameAndActionToPolicyId.clear();
         this.policyIdToTimestamp.clear();
         this.policyIdToTimestamp = newPolicyIdToTimestamp;
         this.policiesById = newPoliciesById;
-        this.resourceIdAndActionToPolicyId = newResourceIdAndActionToPolicyId;
-        this.lastResetTimeStamp = timestamp;
+        this.resourceNameAndActionToPolicyId = newResourceIdAndActionToPolicyId;
+        this.lastTimeStamp = timestamp;
     }
 
     public void cachePolicy(AccessPolicy policy){
@@ -78,8 +92,11 @@ public class AccessPolicyCache {
             }
             this.policiesById.put(policy.getIdentifier(), policy);
             this.policyIdToTimestamp.put(policy.getIdentifier(), timeStamp);
-            this.resourceIdAndActionToPolicyId.put(
-                String.format("%s_%s", policy.getResource(), policy.getAction().toString()), policy.getIdentifier());
+            this.resourceNameAndActionToPolicyId.put(
+                getResourceActionKey(policy.getResource(), policy.getAction()),
+                policy.getIdentifier());
+            // update last time stamp at the cache level
+            this.lastTimeStamp = timeStamp;
 
         }
 
@@ -91,7 +108,8 @@ public class AccessPolicyCache {
                 // clean up foundPolicy
                 this.policyIdToTimestamp.remove(policy.getIdentifier());
                 this.policiesById.remove(policy.getIdentifier());
-                this.resourceIdAndActionToPolicyId.remove(String.format("%s_%s", policy.getResource(), policy.getAction().toString()));
+                this.resourceNameAndActionToPolicyId.remove(
+                    getResourceActionKey(policy.getResource(), policy.getAction()));
             }
         }
     }
@@ -109,14 +127,14 @@ public class AccessPolicyCache {
                     return foundPolicy;
                 } else {
                     this.policiesById.remove(policyId);
-                    this.resourceIdAndActionToPolicyId.remove(
-                        String.format("%s_%s", foundPolicy.getResource(), foundPolicy.getAction().toString()));
+                    this.resourceNameAndActionToPolicyId.remove(
+                        getResourceActionKey(foundPolicy.getResource(), foundPolicy.getAction()));
                 }
             } else {
                 this.policyIdToTimestamp.remove(policyId);
                 this.policiesById.remove(policyId);
-                this.resourceIdAndActionToPolicyId.remove(
-                    String.format("%s_%s", foundPolicy.getResource(), foundPolicy.getAction().toString()));
+                this.resourceNameAndActionToPolicyId.remove(
+                    getResourceActionKey(foundPolicy.getResource(), foundPolicy.getAction()));
             }
         }
         return null;
@@ -126,7 +144,8 @@ public class AccessPolicyCache {
         if(resourceId == null || action == null)
             return null;
         final String foundPolicyId =
-            this.resourceIdAndActionToPolicyId.get(String.format("%s_%s", resourceId, action.toString()));
+            this.resourceNameAndActionToPolicyId.get(
+                getResourceActionKey(resourceId, action));
 
         if(foundPolicyId != null) {
             return getAccessPolicyFromCache(foundPolicyId);
@@ -135,8 +154,8 @@ public class AccessPolicyCache {
     }
 
     public Set<AccessPolicy> getAccessPoliciesFromCache(){
-        if(lastResetTimeStamp != null &&
-            Duration.between(lastResetTimeStamp, Instant.now()).toSeconds() < cacheDurationBySeconds) {
+        if(lastTimeStamp != null &&
+            Duration.between(lastTimeStamp, Instant.now()).toSeconds() < cacheDurationBySeconds) {
             // return cached set of access policies
             return Collections.unmodifiableSet(new HashSet<>(policiesById.values()));
         }

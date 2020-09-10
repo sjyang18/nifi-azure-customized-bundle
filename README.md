@@ -29,4 +29,4 @@
 </authorizer>
 ```
 
-Note that in the example above, "&" is replaced with "\&amp;" to escape in XML.
+Note that in the example above, "&" in the connection string is replaced with "\&amp;" to escape in XML.

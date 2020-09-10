@@ -29,6 +29,8 @@ import org.apache.nifi.authorization.AccessPolicy;
 import org.apache.nifi.authorization.azure.model.Policy;
 import org.apache.nifi.authorization.exception.AuthorizationAccessException;
 import org.apache.nifi.authorization.exception.AuthorizerCreationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import dev.morphia.Datastore;
 import dev.morphia.Morphia;
@@ -43,6 +45,7 @@ public class AccessPolicyDataStore {
     final MongoClient mongoClient;
     final Morphia morphia;
     final Datastore datastore;
+    private static final Logger logger = LoggerFactory.getLogger(AccessPolicyDataStore.class);
 
     public AccessPolicyDataStore(final MongoClientURI mongoClientURI, final String databaseName){
         mongoClient = new MongoClient(mongoClientURI);
@@ -78,6 +81,7 @@ public class AccessPolicyDataStore {
     public Set<AccessPolicy> getAccessPolicies() throws AuthorizationAccessException {
         final Set<AccessPolicy> policies = new HashSet<>();
         // retrieve raw json data from database, unmarshall, and return
+        logger.debug("db call: getAccessPolicies()");
         final List<Policy> policyData = datastore.createQuery(Policy.class).find().toList();
 
         for (final Policy policy : policyData) {
@@ -90,6 +94,7 @@ public class AccessPolicyDataStore {
     }
 
     public AccessPolicy getAccessPolicy(final String identifier) throws AuthorizationAccessException {
+        logger.debug("db call: getAccessPolicy(identifier)");
         final List<Policy> policyQuery = datastore.createQuery(Policy.class).field("identifier").equal(identifier)
                 .find().toList();
         if (policyQuery.size() == 1) {
@@ -101,9 +106,10 @@ public class AccessPolicyDataStore {
 
     }
 
-    public AccessPolicy getAccessPolicy(final String resourceIdentifier, final String action)
+    public AccessPolicy getAccessPolicy(final String resourceName, final String action)
             throws AuthorizationAccessException {
-        final List<Policy> policyQuery = datastore.createQuery(Policy.class).field("resource").equal(resourceIdentifier)
+        logger.debug("db call: getAccessPolicy(resourceName, action)");
+        final List<Policy> policyQuery = datastore.createQuery(Policy.class).field("resource").equal(resourceName)
                 .field("action").equal(action).find().toList();
         if (policyQuery.size() == 1) {
             final Policy top = policyQuery.get(0);

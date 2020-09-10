@@ -170,10 +170,15 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
             // see if you have initial access policies
             // if not, generate
             final Set<AccessPolicy> policies = getAccessPolicyDataStore().getAccessPolicies();
-            if(policies.size() == 0) {
+            if(policies.size() < 12) { //  initial policies should be 12. Thus, minimum number is 12.
                 // load the initail access policies
                 populateInitialAccessPolicies();
+                getAccessPolicies();
+            }else {
+                final AccessPolicyCache cache = getAccessPolicyCache();
+                cache.resetCache(policies);
             }
+
         } catch (SAXException | AuthorizerCreationException | IllegalStateException e) {
             throw new AuthorizerCreationException(e);
         }
@@ -208,7 +213,7 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
 
     @Override
     public UserGroupProvider getUserGroupProvider() {
-        logger.info("getUserGroupProvider() called.");
+        logger.debug("getUserGroupProvider() called.");
         return userGroupProvider;
     }
 
@@ -228,45 +233,64 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
 
     @Override
     public synchronized AccessPolicy addAccessPolicy(AccessPolicy accessPolicy) throws AuthorizationAccessException {
-        logger.info("addAccessPolicy(AccessPolicy) called.");
+        logger.debug("addAccessPolicy(AccessPolicy) called.");
         final AccessPolicy policy = getAccessPolicyDataStore().addAccessPolicy(accessPolicy);
         getAccessPolicyCache().cachePolicy(accessPolicy);
         return policy;
     }
 
-
     @Override
-    public AccessPolicy getAccessPolicy(String identifier) throws AuthorizationAccessException {
+    public synchronized AccessPolicy getAccessPolicy(String identifier) throws AuthorizationAccessException {
         logger.debug(String.format("getAccessPolicy called with identifier(%s)", identifier));
         final AccessPolicyCache cache = getAccessPolicyCache();
         if (identifier == null) {
             return null;
         }
-        final AccessPolicy policyFromCache = cache.getAccessPolicyFromCache(identifier);
-        if(policyFromCache !=null) {
-            return policyFromCache;
-        }
-        final AccessPolicy retrieved = getAccessPolicyDataStore().getAccessPolicy(identifier);
-        if(retrieved !=null) {
-            cache.cachePolicy(retrieved);
+        if(!cache.existDefinedPolicyFor(identifier)) {
+            // policy does not even defined yet.
+            // ex. there is no initial policy for
+            // '/restricted-components/access-keytab', '/restricted-components', '/parameter-contexts', '/system'
+            // etc.
+            logger.debug(String.format("Policy is not defined for (%s)", identifier));
+            return null;
         }
 
-        return retrieved;
+        final AccessPolicy policyFromCache = cache.getAccessPolicyFromCache(identifier);
+        if(policyFromCache !=null) {
+            logger.debug("returing the access policy from cache");
+            return policyFromCache;
+        }
+        // In NIFI, the pattern of this call made from NIFI UI is to retrieve a set of policies defined
+        // thus, it is more efficient to call a set of policie first, cache them, and return the selectd one
+        final Set<AccessPolicy> retreived = getAccessPolicyDataStore().getAccessPolicies();
+        cache.resetCache(retreived);
+        final AccessPolicy selected = cache.getAccessPolicyFromCache(identifier);
+        return selected;
     }
 
     @Override
-    public AccessPolicy getAccessPolicy(String resourceIdentifier, RequestAction action) throws AuthorizationAccessException {
+    public synchronized AccessPolicy getAccessPolicy(String resourceIdentifier, RequestAction action) throws AuthorizationAccessException {
         logger.debug(String.format("getAccessPolicy called with resourceIdentifier(%s) and action(%s)",resourceIdentifier,action.toString()) );
         final AccessPolicyCache cache = getAccessPolicyCache();
+        if(!cache.existDefinedPolicyFor(resourceIdentifier, action)) {
+            // policy does not even defined yet.
+            // ex. there are no initial policies for
+            // '/restricted-components/access-keytab', '/restricted-components', '/parameter-contexts', '/system'
+            // etc.
+            logger.debug(String.format("Policy is not defined for (%s) and (%s)", resourceIdentifier, action));
+            return null;
+        }
         final AccessPolicy policyFromCache = cache.getAccessPolicyFromCache(resourceIdentifier, action);
         if(policyFromCache !=null) {
+            logger.debug("returing the access policy from cache");
             return policyFromCache;
         }
-        final AccessPolicy retrieved = getAccessPolicyDataStore().getAccessPolicy(resourceIdentifier, action.toString());
-        if(retrieved !=null) {
-            cache.cachePolicy(retrieved);
-        }
-        return retrieved;
+        // In NIFI, the pattern of this call made from NIFI UI is to retrieve a set of policies defined
+        // thus, it is more efficient to call a set of policie first, cache them, and return the selectd one
+        final Set<AccessPolicy> retreived = getAccessPolicyDataStore().getAccessPolicies();
+        cache.resetCache(retreived);
+        final AccessPolicy selected =  cache.getAccessPolicyFromCache(resourceIdentifier, action);
+        return selected;
     }
 
     @Override
