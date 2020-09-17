@@ -57,7 +57,6 @@ public class NiFiLeaderFinder {
     private String removeHostFromPrincipal;
     private String removeRealmFromPrincipal;
 
-
     private static final Logger logger = LoggerFactory.getLogger(NiFiLeaderFinder.class);
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private static final Pattern PORT_PATTERN = Pattern.compile("[0-9]{1,5}");
@@ -286,12 +285,10 @@ public class NiFiLeaderFinder {
                     principal.append("/");
                     principal.append(host);
                 }
-
                 if (!removeRealmFromPrincipal.equalsIgnoreCase("true")) {
                     principal.append("@");
                     principal.append(realm);
                 }
-
                 this.acls = Lists.newArrayList(new ACL(ZooDefs.Perms.ALL, new Id(SASL_AUTH_SCHEME, principal.toString())));
                 this.acls.addAll(ZooDefs.Ids.READ_ACL_UNSAFE);
 
@@ -367,11 +364,9 @@ public class NiFiLeaderFinder {
         private String removeHostFromPrincipal;
         private String removeRealmFromPrincipal;
 
-
         public Builder(){
         }
     
-
         public Builder setZkConnectionString(String zkConnectionString) {
             this.zkConnectionString = zkConnectionString;
             rootPath = "/nifi";
@@ -402,7 +397,6 @@ public class NiFiLeaderFinder {
             return this;
         }
 
-    
         public Builder setRemoveRealmFromPrincipal(String removeRealmFromPrincipal) {
             this.removeRealmFromPrincipal = removeRealmFromPrincipal;
             return this;
@@ -415,10 +409,6 @@ public class NiFiLeaderFinder {
             finder.setRemoveHostFromPrincipal(removeHostFromPrincipal);
             finder.setRemoveRealmFromPrincipal(removeRealmFromPrincipal);
             return finder;
-
         }
     }
-
-
-    
 }
