@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.nifi.authorization.azure;
 
 import java.io.ByteArrayInputStream;
@@ -94,6 +95,8 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
     private UserGroupProviderLookup userGroupProviderLookup;
     private final AtomicReference<AccessPolicyDataStore> policyDataStoreRef = new AtomicReference<>();
     private final AtomicReference<AccessPolicyCache> policyCacheRef = new AtomicReference<>();
+    private NiFiLeaderFinder nifiLeaderFinder;
+    private String clusterNodeAddress;
 
     @Override
     public void initialize(AccessPolicyProviderInitializationContext initializationContext) throws AuthorizerCreationException {
@@ -108,9 +111,10 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
             if(!connectionString.isSet() && !dbName.isSet()){
                 throw new AuthorizerCreationException("MongoDB connection string and dbname for Authorizations must be specified");
             }
+            final long cacheTimeoutInSeconds = getCacheTimeoutProperty(configurationContext);
             final MongoClientURI mongoClientURI = new MongoClientURI(connectionString.getValue());
             policyDataStoreRef.set(new AccessPolicyDataStore(mongoClientURI, dbName.getValue()));
-            policyCacheRef.set(new AccessPolicyCache(getCacheTimeoutProperty(configurationContext)));
+            policyCacheRef.set(new AccessPolicyCache(cacheTimeoutInSeconds));
 
             final PropertyValue userGroupProviderIdentifier = configurationContext.getProperty(PROP_USER_GROUP_PROVIDER);
             if (!userGroupProviderIdentifier.isSet()) {
@@ -178,10 +182,76 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
                 final AccessPolicyCache cache = getAccessPolicyCache();
                 cache.resetCache(policies);
             }
+            
+            final String isCluster = properties.getProperty(NiFiProperties.CLUSTER_IS_NODE,null);
+            if(isCluster !=null && isCluster.equals("true")){
+                logger.debug("cluster is node");
+                clusterNodeAddress = properties.getProperty(NiFiProperties.CLUSTER_NODE_ADDRESS, null);
+                final String zkConnectionString = properties.getProperty(NiFiProperties.ZOOKEEPER_CONNECT_STRING, null);
+                final String zkNiFiRootPath = properties.getProperty(NiFiProperties.ZOOKEEPER_ROOT_NODE, null);
+                if(clusterNodeAddress == null || zkConnectionString == null || zkNiFiRootPath == null) {
+                    logger.info(String.format("%S, %S, and %s must be configured in NiFiProperties in order to query Zookeeper",
+                        NiFiProperties.CLUSTER_NODE_ADDRESS,
+                        NiFiProperties.ZOOKEEPER_CONNECT_STRING,
+                        NiFiProperties.ZOOKEEPER_ROOT_NODE));
+                    nifiLeaderFinder = null;
+                    clusterNodeAddress = null;
+                    logger.debug("not using nifiLeaderFinder");
+                } else {
+                    logger.debug("setting up nifiLeaderFinder");
+                    logger.debug("clusterNodeAddress : " + clusterNodeAddress);
+                    nifiLeaderFinder = NiFiLeaderFinder.create(properties);                
+                    nifiLeaderFinder.scheduleToCachePrimaryAndCoordinateNode(cacheTimeoutInSeconds);    
+                }
+            } else {
+                logger.debug("not a cluster mode");
+                nifiLeaderFinder = null;
+                clusterNodeAddress = null;
+            }
 
         } catch (SAXException | AuthorizerCreationException | IllegalStateException e) {
             throw new AuthorizerCreationException(e);
         }
+    }
+
+    private boolean isClusterNode(){
+        logger.debug("isClusterNode: " + Boolean.toString(clusterNodeAddress != null));
+        return clusterNodeAddress != null;
+    }
+
+    private boolean hasClusterInfoFromZookeeper(){
+        Map<String, String> cachedNodes = nifiLeaderFinder.getCachedDataFromScheduler();
+        logger.debug("hasClusterInfoFromZookeeper: " + Boolean.toString(cachedNodes.size() != 0));
+        return cachedNodes.size() != 0;
+    }
+
+    private boolean isPrimaryOrCoordinateNode(){
+        logger.debug("isPrimaryOrCoordinateNode called");
+        boolean finding = false;
+        // get the primary and cluster coordinator from cache,
+        // if exists, parse and compare with the node name
+        if(nifiLeaderFinder !=null && isClusterNode()){
+            Map<String, String> cachedNodes = nifiLeaderFinder.getCachedDataFromScheduler();
+            if(cachedNodes.size() == 0) {
+                logger.debug("cachedNodes.size() == 0?");
+                return false;
+            } else {
+                for(String val: cachedNodes.values()) {
+                    if(!StringUtils.isEmpty(val)) {
+                        final String[] hostAndPort = StringUtils.split(val, ":");
+                        logger.debug("host : "+ hostAndPort[0]);
+                        logger.debug("clusterNodeAddress : "+ clusterNodeAddress);
+                        if(hostAndPort[0].equals(clusterNodeAddress)) {
+                            logger.debug("This node is a primary or cluster coordinate node");
+                            finding = true;
+                            break;
+                        }
+                    }    
+                }
+                return finding;
+            }
+        }
+        return finding;
     }
 
     private AccessPolicyDataStore getAccessPolicyDataStore(){
@@ -233,10 +303,22 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
 
     @Override
     public synchronized AccessPolicy addAccessPolicy(AccessPolicy accessPolicy) throws AuthorizationAccessException {
-        logger.debug("addAccessPolicy(AccessPolicy) called.");
-        final AccessPolicy policy = getAccessPolicyDataStore().addAccessPolicy(accessPolicy);
+        logger.debug("addAccessPolicy(AccessPolicy) called.");        
         getAccessPolicyCache().cachePolicy(accessPolicy);
-        return policy;
+        if(isClusterNode() && hasClusterInfoFromZookeeper()) {
+            if(isPrimaryOrCoordinateNode()){
+                // only Primary Node or Cluster Node would call db & add access policy.
+                final AccessPolicy policy = getAccessPolicyDataStore().addAccessPolicy(accessPolicy);
+                return policy;
+            } else {
+                logger.debug("skipping db operation");
+                return accessPolicy;
+            }
+        } else {
+             // either not cluster mode or no cluster info from zookper available at this time
+             final AccessPolicy policy = getAccessPolicyDataStore().addAccessPolicy(accessPolicy);
+             return policy;  
+        }
     }
 
     @Override
@@ -299,9 +381,22 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
         if (accessPolicy == null) {
             throw new IllegalArgumentException("AccessPolicy cannot be null");
         }
-        final AccessPolicy updated = getAccessPolicyDataStore().updateAccessPolicy(accessPolicy);
-        getAccessPolicyCache().cachePolicy(updated);
-        return updated;
+        getAccessPolicyCache().cachePolicy(accessPolicy);
+        if(isClusterNode() && hasClusterInfoFromZookeeper()) {
+            if(isPrimaryOrCoordinateNode()){
+                // only Primary Node or Cluster Node would call db & add access policy.
+                logger.debug("updating accessPolicy to db");
+                return getAccessPolicyDataStore().updateAccessPolicy(accessPolicy); 
+            } else {
+                logger.debug("skipping db operation");
+                return accessPolicy;
+            }
+        } else {
+             // either not cluster mode or no cluster info from zookper available at this time
+             logger.debug("updating accessPolicy to db");
+             final AccessPolicy policy = getAccessPolicyDataStore().updateAccessPolicy(accessPolicy);
+             return policy;  
+        }
     }
 
     @Override
@@ -311,7 +406,21 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
             throw new IllegalArgumentException("AccessPolicy cannot be null");
         }
         getAccessPolicyCache().remove(accessPolicy);
-        return getAccessPolicyDataStore().deleteAccessPolicy(accessPolicy);
+        if(isClusterNode() && hasClusterInfoFromZookeeper()) {
+            if(isPrimaryOrCoordinateNode()){
+                // only Primary Node or Cluster Node would call db & add access policy.
+                logger.debug("deleting accessPolicy to db");
+                return getAccessPolicyDataStore().deleteAccessPolicy(accessPolicy); 
+            } else {
+                logger.debug("skipping db operation");
+                return accessPolicy;
+            }
+        } else {
+             // either not cluster mode or no cluster info from zookper available at this time
+             logger.debug("deleting accessPolicy to db");
+             final AccessPolicy policy = getAccessPolicyDataStore().deleteAccessPolicy(accessPolicy);
+             return policy;  
+        }
     }
 
     @AuthorizerContext
@@ -596,5 +705,8 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
 
     @Override
     public void preDestruction() throws AuthorizerDestructionException {
+        if(nifiLeaderFinder != null){
+            nifiLeaderFinder.stopScheduler();
+        }
     }
 }

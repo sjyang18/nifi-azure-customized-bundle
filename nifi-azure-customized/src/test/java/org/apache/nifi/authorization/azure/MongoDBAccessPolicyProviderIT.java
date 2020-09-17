@@ -21,15 +21,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -64,35 +60,12 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockito.Mockito;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 
-public class MongoDBAccessPolicyProviderIT {
+public class MongoDBAccessPolicyProviderIT extends BaseIT {
     private static final Logger logger = LoggerFactory.getLogger(MongoDBAccessPolicyProviderIT.class);
-
-    private static final Properties CONFIG;
-
-    private static final String CREDENTIALS_FILE = System.getProperty("user.home") + "/azure-accesspolicyprovider.PROPERTIES";
-
-    static {
-        CONFIG = new Properties();
-        try {
-            final FileInputStream fis = new FileInputStream(CREDENTIALS_FILE);
-            try {
-                CONFIG.load(fis);
-            } catch (IOException e) {
-                fail("Could not open credentials file " + CREDENTIALS_FILE + ": " + e.getLocalizedMessage());
-            } finally {
-                FileUtils.closeQuietly(fis);
-            }
-        } catch (FileNotFoundException e) {
-            fail("Could not open credentials file " + CREDENTIALS_FILE + ": " + e.getLocalizedMessage());
-        }
-    }
 
     protected static String getConnectionString() {
         return CONFIG.getProperty("ConnectionString");
@@ -604,16 +577,4 @@ public class MongoDBAccessPolicyProviderIT {
         return FileUtils.deleteFile(file, null, 10);
     }
 
-    private NiFiProperties getNiFiProperties(final Properties properties) {
-        final NiFiProperties nifiProperties = Mockito.mock(NiFiProperties.class);
-        when(nifiProperties.getPropertyKeys()).thenReturn(properties.stringPropertyNames());
-
-        when(nifiProperties.getProperty(anyString())).then(new Answer<String>() {
-            @Override
-            public String answer(InvocationOnMock invocationOnMock) throws Throwable {
-                return properties.getProperty((String)invocationOnMock.getArguments()[0]);
-            }
-        });
-        return nifiProperties;
-    }
 }
