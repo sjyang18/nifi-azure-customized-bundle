@@ -1,4 +1,5 @@
 # nifi-azure-customized-bundle
+This bundle includes the module that stores NIFI policies into Mongo DB (possibly Azure Cosmos with Mongo DB API).
 
 ## Pre-requsites
 * Backend Data Store : This bundle needs a Mongo DB instance with the collection called 'policies' in advance. Simply you may setup an Azure Cosmos DB instance following this quick start (https://docs.microsoft.com/en-us/azure/cosmos-db/create-mongodb-java). Choose 'Fixed(10GB)' option for Stroage capacity as shown below. You may choose to setup your own MongoDB instance if you don't have an Azure subscription.
@@ -8,6 +9,12 @@
 * Securing NiFi with TLS: Authorization is based on authentication of user identities. Enable security in NiFi with the following documentation (https://nifi.apache.org/docs/nifi-docs/html/walkthroughs.html#securing-nifi-with-tls).
 
 ## Configuration
+* Build nar files with 'mvn clean install' and copy nar files to your NIFI cluster lib directory.
+```bash
+cp ./nifi-azure-customized-api-nar/target/nifi-azure-customized-api-nar-1.0-SNAPSHOT.nar ${NIFI_DIR}/lib
+cp ./nifi-azure-customized-nar/target/nifi-azure-customized-nar-1.0-SNAPSHOT.nar ${NIFI_DIR}/lib
+```
+
 * Update your Nifi conf/authorizers.xml with azure-access-policy-provider. Change 'User Group Provider' and 'Initial Admin Idenity' based on your choice.  For example,
 ```xml
 <accessPolicyProvider>
