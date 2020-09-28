@@ -510,7 +510,8 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
         try (final InputStream in = Files.newInputStream(flowPath, StandardOpenOption.READ);
              final InputStream gzipIn = new GZIPInputStream(in)) {
 
-            byte[] flowBytes = gzipIn.readAllBytes();
+            byte[] flowBytes = new byte[gzipIn.available()];
+            gzipIn.read(flowBytes);
             if (flowBytes == null || flowBytes.length == 0) {
                 logger.warn("Could not extract root group id because Flow Configuration File was empty");
                 return null;

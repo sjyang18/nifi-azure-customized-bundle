@@ -51,7 +51,7 @@ public class AccessPolicyDataStore {
         mongoClient = new MongoClient(mongoClientURI);
         checkDatabaseCollectionExists(databaseName);
         morphia = new Morphia();
-        final String packageName = Policy.class.getPackageName();
+        final String packageName = Policy.class.getPackage().getName();
         morphia.mapPackage(packageName);
         datastore = morphia.createDatastore(mongoClient, databaseName);
         datastore.ensureIndexes();

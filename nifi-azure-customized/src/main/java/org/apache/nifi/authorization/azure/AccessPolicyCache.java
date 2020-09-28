@@ -123,7 +123,7 @@ public class AccessPolicyCache {
             // check if cached policy is expired
             final Instant lastTimestamp = policyIdToTimestamp.get(policyId);
             if(lastTimestamp != null) {
-                if(Duration.between(lastTimestamp, timeStamp).toSeconds() < cacheDurationBySeconds) {
+                if(Duration.between(lastTimestamp, timeStamp).getSeconds() < cacheDurationBySeconds) {
                     return foundPolicy;
                 } else {
                     this.policiesById.remove(policyId);
@@ -155,7 +155,7 @@ public class AccessPolicyCache {
 
     public Set<AccessPolicy> getAccessPoliciesFromCache(){
         if(lastTimeStamp != null &&
-            Duration.between(lastTimeStamp, Instant.now()).toSeconds() < cacheDurationBySeconds) {
+            Duration.between(lastTimeStamp, Instant.now()).getSeconds() < cacheDurationBySeconds) {
             // return cached set of access policies
             return Collections.unmodifiableSet(new HashSet<>(policiesById.values()));
         }
