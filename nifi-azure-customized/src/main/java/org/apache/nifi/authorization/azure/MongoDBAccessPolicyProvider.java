@@ -41,6 +41,7 @@ import javax.xml.parsers.ParserConfigurationException;
 
 import com.mongodb.MongoClientURI;
 
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.nifi.authorization.AccessPolicy;
 import org.apache.nifi.authorization.AccessPolicyProviderInitializationContext;
@@ -510,7 +511,7 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
         try (final InputStream in = Files.newInputStream(flowPath, StandardOpenOption.READ);
              final InputStream gzipIn = new GZIPInputStream(in)) {
 
-            byte[] flowBytes = new byte[gzipIn.available()];
+            byte[] flowBytes = IOUtils.toByteArray(gzipIn);
             gzipIn.read(flowBytes);
             if (flowBytes == null || flowBytes.length == 0) {
                 logger.warn("Could not extract root group id because Flow Configuration File was empty");
