@@ -88,6 +88,7 @@ public class AccessPolicyDataStore {
             final AccessPolicy nifiAccessPolicy = policy.convertToNifiAccessPolicy();
             policies.add(nifiAccessPolicy);
         }
+        logger.debug("# of access policies : " + policies.size());
 
         return policies;
 

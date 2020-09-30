@@ -58,7 +58,7 @@ public class NiFiLeaderFinder {
     private String removeRealmFromPrincipal;
 
     private static final Logger logger = LoggerFactory.getLogger(NiFiLeaderFinder.class);
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     private static final Pattern PORT_PATTERN = Pattern.compile("[0-9]{1,5}");
 
     public static final String PRIMARY_NODE = "Primary Node";
@@ -197,6 +197,7 @@ public class NiFiLeaderFinder {
                 final Participant leader = selector.getLeader();
                 final String nodeAndPort = leader == null ? null : leader.getId();
                 logger.debug(String.format("returning nodeAndPort: %s", nodeAndPort));
+                client.close();
                 return nodeAndPort;
             } catch (final KeeperException.NoNodeException nne) {
                 // If there is no ZNode, then there is no elected leader.

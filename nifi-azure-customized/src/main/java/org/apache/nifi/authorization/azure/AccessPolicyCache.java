@@ -26,8 +26,11 @@ import java.util.Set;
 
 import org.apache.nifi.authorization.AccessPolicy;
 import org.apache.nifi.authorization.RequestAction;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class AccessPolicyCache {
+    private static final Logger logger = LoggerFactory.getLogger(AccessPolicyCache.class);
     private Map<String, Instant> policyIdToTimestamp;
     private Map<String, AccessPolicy> policiesById;
     private Map<String, String> resourceNameAndActionToPolicyId; // map (resourceName + action) => policyId
@@ -59,9 +62,9 @@ public class AccessPolicyCache {
         if(policies ==null || policies.size() == 0) {
             return; // dont do anything if input is empty
         }
-        final Map<String, Instant> newPolicyIdToTimestamp = new HashMap<>();
-        final Map<String, AccessPolicy> newPoliciesById = new HashMap<>();
-        final Map<String, String> newResourceIdAndActionToPolicyId = new HashMap<>();
+        Map<String, Instant> newPolicyIdToTimestamp = new HashMap<>();
+        Map<String, AccessPolicy> newPoliciesById = new HashMap<>();
+        Map<String, String> newResourceIdAndActionToPolicyId = new HashMap<>();
 
         Instant now = Instant.now();
         for(AccessPolicy policy: policies) {
@@ -71,32 +74,28 @@ public class AccessPolicyCache {
                 getResourceActionKey(policy.getResource(), policy.getAction()),
                 policy.getIdentifier());
         }
-
-
-        this.policiesById.clear();
-        this.resourceNameAndActionToPolicyId.clear();
-        this.policyIdToTimestamp.clear();
         this.policyIdToTimestamp = newPolicyIdToTimestamp;
         this.policiesById = newPoliciesById;
         this.resourceNameAndActionToPolicyId = newResourceIdAndActionToPolicyId;
         this.lastTimeStamp = now;
+        logger.debug("Policy cache reset with " + policyIdToTimestamp.size());
     }
 
     public void cachePolicy(AccessPolicy policy){
         if (policy !=null) {
-            Instant timeStamp = Instant.now();
+            Instant now = Instant.now();
             final AccessPolicy foundPolicy = this.policiesById.get(policy.getIdentifier());
             if(foundPolicy != null){
                 // clean up foundPolicy
                 this.remove(policy);
             }
             this.policiesById.put(policy.getIdentifier(), policy);
-            this.policyIdToTimestamp.put(policy.getIdentifier(), timeStamp);
+            this.policyIdToTimestamp.put(policy.getIdentifier(), now);
             this.resourceNameAndActionToPolicyId.put(
                 getResourceActionKey(policy.getResource(), policy.getAction()),
                 policy.getIdentifier());
             // update last time stamp at the cache level
-            this.lastTimeStamp = timeStamp;
+            this.lastTimeStamp = now;
 
         }
 
@@ -126,6 +125,7 @@ public class AccessPolicyCache {
                 if(Duration.between(lastTimestamp, now).getSeconds() < cacheDurationBySeconds) {
                     return foundPolicy;
                 }
+                logger.debug("leave the invalidated cached policy behind so that it still supports existDefinedPolicyFor method");
                 // leave the invalidated cached policy behind so that it still supports existDefinedPolicyFor method.
             }
         }
