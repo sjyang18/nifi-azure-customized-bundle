@@ -175,7 +175,7 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
             // see if you have initial access policies
             // if not, generate
             final Set<AccessPolicy> policies = getAccessPolicyDataStore().getAccessPolicies();
-            if(policies.size() < 12) { //  initial policies should be 12. Thus, minimum number is 12.
+            if(policies.size() == 0) {
                 // load the initail access policies
                 populateInitialAccessPolicies();
                 getAccessPolicies();
@@ -368,7 +368,7 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
             logger.debug("returing the access policy from cache");
             return policyFromCache;
         }
-        // In NIFI, the pattern of this call made from NIFI UI is to retrieve a set of policies defined
+        // In NiFi, the pattern of this call made from NIFI UI is to retrieve a set of policies defined
         // thus, it is more efficient to call a set of policie first, cache them, and return the selectd one
         final Set<AccessPolicy> retreived = getAccessPolicyDataStore().getAccessPolicies();
         cache.resetCache(retreived);
@@ -539,6 +539,7 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
             }
 
             final String rootGroupId = rootGroupIdElement.getTextContent();
+            logger.debug("rootGroupId : " + rootGroupId);
             return rootGroupId;
 
         } catch (final SAXException | ParserConfigurationException | IOException ex) {

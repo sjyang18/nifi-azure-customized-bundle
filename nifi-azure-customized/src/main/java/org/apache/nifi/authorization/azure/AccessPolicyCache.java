@@ -63,9 +63,9 @@ public class AccessPolicyCache {
         final Map<String, AccessPolicy> newPoliciesById = new HashMap<>();
         final Map<String, String> newResourceIdAndActionToPolicyId = new HashMap<>();
 
-        Instant timestamp = Instant.now();
+        Instant now = Instant.now();
         for(AccessPolicy policy: policies) {
-            newPolicyIdToTimestamp.put(policy.getIdentifier(), timestamp);
+            newPolicyIdToTimestamp.put(policy.getIdentifier(), now);
             newPoliciesById.put(policy.getIdentifier(), policy);
             newResourceIdAndActionToPolicyId.put(
                 getResourceActionKey(policy.getResource(), policy.getAction()),
@@ -79,7 +79,7 @@ public class AccessPolicyCache {
         this.policyIdToTimestamp = newPolicyIdToTimestamp;
         this.policiesById = newPoliciesById;
         this.resourceNameAndActionToPolicyId = newResourceIdAndActionToPolicyId;
-        this.lastTimeStamp = timestamp;
+        this.lastTimeStamp = now;
     }
 
     public void cachePolicy(AccessPolicy policy){
@@ -117,26 +117,19 @@ public class AccessPolicyCache {
     public AccessPolicy getAccessPolicyFromCache(String policyId) {
         if(policyId == null)
             return null;
-        final Instant timeStamp = Instant.now();
+        final Instant now = Instant.now();
         final AccessPolicy foundPolicy = this.policiesById.get(policyId);
         if(foundPolicy != null){
             // check if cached policy is expired
             final Instant lastTimestamp = policyIdToTimestamp.get(policyId);
             if(lastTimestamp != null) {
-                if(Duration.between(lastTimestamp, timeStamp).getSeconds() < cacheDurationBySeconds) {
+                if(Duration.between(lastTimestamp, now).getSeconds() < cacheDurationBySeconds) {
                     return foundPolicy;
-                } else {
-                    this.policiesById.remove(policyId);
-                    this.resourceNameAndActionToPolicyId.remove(
-                        getResourceActionKey(foundPolicy.getResource(), foundPolicy.getAction()));
                 }
-            } else {
-                this.policyIdToTimestamp.remove(policyId);
-                this.policiesById.remove(policyId);
-                this.resourceNameAndActionToPolicyId.remove(
-                    getResourceActionKey(foundPolicy.getResource(), foundPolicy.getAction()));
+                // leave the invalidated cached policy behind so that it still supports existDefinedPolicyFor method.
             }
         }
+        // null returns means either it is not existings or expired policy
         return null;
     }
 
