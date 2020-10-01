@@ -2,7 +2,7 @@
 This bundle includes the module that stores NIFI policies into Mongo DB (possibly Azure Cosmos with Mongo DB API).
 
 ## Pre-requsites
-* Backend Data Store : This bundle needs a Mongo DB instance with the collection called 'policies' in advance. Simply you may setup an Azure Cosmos DB instance following this quick start (https://docs.microsoft.com/en-us/azure/cosmos-db/create-mongodb-java). Choose 'Fixed(10GB)' option for Stroage capacity as shown below. You may choose to setup your own MongoDB instance if you don't have an Azure subscription.
+* Backend Data Store : This bundle needs a Mongo DB instance with the collection called 'policies' in advance. Simply you may setup an Azure Cosmos DB instance following this quick start (https://docs.microsoft.com/en-us/azure/cosmos-db/create-mongodb-java). Choose 'Fixed(10GB)' option for Stroage capacity as shown below and do not choose 'Autoscale' for scaling. You may choose to setup your own MongoDB instance if you don't have an Azure subscription.
 
     ![Image](dbcreation.jpg)
 

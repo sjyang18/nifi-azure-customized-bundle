@@ -178,7 +178,6 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
             if(policies.size() == 0) {
                 // load the initail access policies
                 populateInitialAccessPolicies();
-                getAccessPolicies();
             }else {
                 final AccessPolicyCache cache = getAccessPolicyCache();
                 cache.resetCache(policies);
@@ -471,6 +470,9 @@ public class MongoDBAccessPolicyProvider implements ConfigurableAccessPolicyProv
         for(AccessPolicy apolicy: policiesInMemory){
             datastore.addInitialAccessPolicyConfig(apolicy);
         }
+        // populate the generated policies to cache
+        final AccessPolicyCache cache = getAccessPolicyCache();
+        cache.resetCache(policiesInMemory);
 
     }
 
